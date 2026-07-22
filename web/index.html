@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>ShtetlFrames — archival visual candidates</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600&family=Fraunces:opsz,wght@9..144,500;9..144,560&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/assets/styles.css?v=9" />
+</head>
+<body>
+  <div class="wrap">
+    <nav class="site-nav">
+      <div class="nav-left">
+        <a class="brand-mark" href="/">Shtetl<span>Frames</span></a>
+        <a class="nav-pathe" href="/pathe">British Pathé</a>
+      </div>
+      <div class="nav-links">
+        <a href="#scrape">Scrape</a>
+        <a href="#method">Method</a>
+        <a href="/review">Review</a>
+        <a href="/crops">Crops</a>
+        <a href="/health">Health</a>
+      </div>
+    </nav>
+  </div>
+
+  <header class="hero">
+    <div class="hero-film" id="heroFilm" aria-hidden="true"></div>
+    <div class="wrap hero-inner">
+      <h1>ShtetlFrames</h1>
+      <p class="lede">
+        Discover public videos first, then scrape with parallel workers.
+        Find traditional Orthodox dress — Hasidic and Litvish alike — in ~1900–1950 film.
+        Stills go to free cloud hosting; only timestamps and source links stay local.
+      </p>
+      <div class="cta-row">
+        <a class="btn" href="/review">Open review workspace</a>
+        <a class="btn ghost" href="#scrape">Paste a URL</a>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <section>
+      <div class="wrap">
+        <h2>This scan at a glance</h2>
+        <p class="section-lede" style="margin-top:0">
+          Updates live while scrape runs — videos finished, even with zero hits.
+        </p>
+        <div class="stats" id="stats">
+          <div class="stat"><strong>—</strong><span>Candidates</span></div>
+          <div class="stat"><strong>—</strong><span>Videos scanned</span></div>
+          <div class="stat"><strong>—</strong><span>Pending review</span></div>
+          <div class="stat"><strong>—</strong><span>Accepted</span></div>
+        </div>
+      </div>
+    </section>
+
+    <section id="scrape">
+      <div class="wrap">
+        <h2>1 · Discover</h2>
+        <p class="section-lede">
+          Paste a video, playlist, channel (<code>…/@name/videos</code>), or Archive.org / Commons search.
+          Discovery lists videos into the queue — nothing downloads yet.
+        </p>
+        <form class="add-source-form discover-form" id="discoverForm" novalidate>
+          <input id="sourceUrl" type="url" required placeholder="https://…" />
+          <label class="run-max-label discover-max-label">
+            Max
+            <input
+              id="discoverMax"
+              class="run-max-input discover-max-input"
+              type="number"
+              min="1"
+              max="1000000"
+              value="5000"
+              step="1"
+              inputmode="numeric"
+              title="Max videos to list (default 5000, up to 1,000,000)"
+            />
+          </label>
+          <button class="btn small" type="submit" id="discoverBtn">Discover</button>
+        </form>
+        <div id="discoverProgress" class="job-status" hidden>
+          <div class="job-bar"><span id="discoverBar" style="width:0%"></span></div>
+          <p id="discoverMsg"></p>
+        </div>
+        <p id="sourceFormMsg" class="job-hint" style="min-height:1.2em"></p>
+
+        <div class="stats" id="queueStats" style="margin:1.5rem 0">
+          <div class="stat"><strong>—</strong><span>In queue</span></div>
+          <div class="stat"><strong>—</strong><span>Pending scrape</span></div>
+          <div class="stat"><strong>—</strong><span>Done</span></div>
+        </div>
+
+        <h2 style="margin-top:2rem">2 · Scrape</h2>
+        <p class="section-lede">
+          After discovery finishes, choose how many videos and how many parallel workers.
+          <span id="scanBackendHint" class="job-hint"></span>
+        </p>
+
+        <details class="settings-panel" id="settingsPanel" open>
+          <summary>RunPod (cloud GPU)</summary>
+          <form id="settingsForm" class="settings-form">
+            <div id="settingsFields" class="settings-fields"></div>
+            <div class="settings-actions">
+              <button class="btn ghost small" type="submit" id="settingsSaveBtn">Save settings</button>
+              <button class="btn ghost small" type="button" id="cookiesRefreshBtn">Refresh YouTube cookies</button>
+              <label class="btn ghost small cookies-har-label" for="cookiesHarInput">Upload HAR cookies</label>
+              <input id="cookiesHarInput" type="file" accept=".har,application/json,application/har+json" hidden />
+              <button class="btn ghost small" type="button" id="podStopBtn">Stop GPU Pod</button>
+              <span id="settingsMsg" class="job-hint"></span>
+            </div>
+            <p class="settings-help cookies-har-help">
+              Edge locks cookies while open. Workaround: open youtube.com signed in → F12 → Network → reload →
+              right-click → Save all as HAR with content → Upload HAR cookies.
+            </p>
+          </form>
+          <pre id="runpodSetupLog" class="job-log runpod-build-log" hidden></pre>
+        </details>
+
+        <div class="add-source-form" style="align-items:center">
+          <label class="run-max-label">
+            <input type="radio" name="maxMode" value="all" checked /> All
+          </label>
+          <label class="run-max-label">
+            <input type="radio" name="maxMode" value="n" /> Limit
+            <input id="maxN" class="run-max-input discover-max-input" type="number" min="1" max="1000000" value="25" step="1" inputmode="numeric" disabled />
+          </label>
+          <label class="run-max-label">Workers
+            <input id="workers" class="run-max-input" type="number" min="1" max="16" value="8" />
+          </label>
+          <button class="btn small" type="button" id="scrapeBtn" disabled>Start scrape</button>
+          <button class="btn ghost small" type="button" id="clearQueueBtn">Clear queue</button>
+        </div>
+        <p id="scrapeHint" class="job-hint" style="margin-top:0.35rem">
+          Paste your RunPod API key, then Start scrape spins a cloud GPU — no Docker on this PC.
+        </p>
+        <div id="scrapeProgress" class="job-status" hidden>
+          <div class="job-bar"><span id="scrapeBar" style="width:0%"></span></div>
+          <pre id="scrapeMsg" class="job-log"></pre>
+        </div>
+
+        <h2 style="margin-top:2rem">Discovered</h2>
+        <div class="queue-toolbar">
+          <input id="queueSearch" type="search" placeholder="Search title, URL, error…" autocomplete="off" />
+          <select id="queueStatus" aria-label="Filter status">
+            <option value="">All statuses</option>
+            <option value="downloading">downloading</option>
+            <option value="scanning">scanning</option>
+            <option value="uploading">uploading</option>
+            <option value="pending">pending</option>
+            <option value="queued">queued</option>
+            <option value="done">done</option>
+            <option value="error">error</option>
+          </select>
+          <label class="run-max-label">Page
+            <select id="queuePageSize">
+              <option value="50">50</option>
+              <option value="100" selected>100</option>
+              <option value="250">250</option>
+              <option value="500">500</option>
+            </select>
+          </label>
+          <span id="queuePageMeta" class="queue-meta">—</span>
+          <button type="button" class="btn ghost small" id="queuePrev" disabled>Prev</button>
+          <button type="button" class="btn ghost small" id="queueNext" disabled>Next</button>
+        </div>
+        <div class="queue-table-wrap">
+          <table class="queue-table" aria-label="Discovered videos">
+            <thead>
+              <tr>
+                <th class="col-id">ID</th>
+                <th>Status</th>
+                <th>Title</th>
+                <th>Source</th>
+                <th>Year</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="queueTableBody">
+              <tr><td colspan="6" class="empty-cell">Queue empty — discover a URL first.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <section id="method">
+      <div class="wrap">
+        <h2>Detection method</h2>
+        <p class="section-lede">
+          Zero-shot CLIP against dress prompts for <strong>Hasidic and Litvish (non-Hasidic) Orthodox</strong> men.
+          Non-Hasidic Orthodox (Litvish etc.) look nearly identical in B&amp;W newsreels — both are intentional hits,
+          not false positives. Hit stills upload to Catbox; videos are deleted after scan.
+        </p>
+        <div class="method-steps">
+          <article class="step">
+            <div class="n">01</div>
+            <h3>Discover</h3>
+            <p>Expand the hub URL into a SQLite queue of downloadable video links.</p>
+          </article>
+          <article class="step">
+            <div class="n">02</div>
+            <h3>Scrape</h3>
+            <p>Parallel workers download, score frames, upload stills, delete local video.</p>
+          </article>
+          <article class="step">
+            <div class="n">03</div>
+            <h3>Review</h3>
+            <p>Cycle hits with cloud stills, timestamps, and source links only.</p>
+          </article>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <div class="wrap">
+      ShtetlFrames · SQLite · cloud stills · local timestamps only
+    </div>
+  </footer>
+
+  <script src="/assets/landing.js?v=9"></script>
+</body>
+</html>

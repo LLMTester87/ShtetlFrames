@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Crops — ShtetlFrames</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600&family=Fraunces:opsz,wght@9..144,500;9..144,560&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/assets/styles.css?v=9" />
+</head>
+<body>
+  <div class="wrap">
+    <nav class="site-nav">
+      <div class="nav-left">
+        <a class="brand-mark" href="/">Shtetl<span>Frames</span></a>
+        <a class="nav-pathe" href="/pathe">British Pathé</a>
+      </div>
+      <div class="nav-links">
+        <a href="/#scrape">Scrape</a>
+        <a href="/review">Review</a>
+        <a class="active" href="/crops">Crops</a>
+        <a href="/health">Health</a>
+      </div>
+    </nav>
+
+    <header class="review-head">
+      <div>
+        <h1>Crops</h1>
+        <p class="section-lede" style="margin:0">
+          Short labeled strips (±2s · every 0.5s). Queue them from Review, download here.
+        </p>
+      </div>
+      <div class="filters">
+        <button class="btn ghost small" id="refreshCrops" type="button">Refresh</button>
+      </div>
+    </header>
+
+    <p class="crops-summary" id="cropsSummary">Loading…</p>
+    <div class="crops-list" id="cropsList"></div>
+  </div>
+
+  <script src="/assets/crops.js?v=1"></script>
+</body>
+</html>

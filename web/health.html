@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Health — ShtetlFrames</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600&family=Fraunces:opsz,wght@9..144,500;9..144,560&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/assets/styles.css?v=10" />
+</head>
+<body>
+  <div class="wrap">
+    <nav class="site-nav">
+      <div class="nav-left">
+        <a class="brand-mark" href="/">Shtetl<span>Frames</span></a>
+        <a class="nav-pathe" href="/pathe">British Pathé</a>
+      </div>
+      <div class="nav-links">
+        <a href="/#scrape">Scrape</a>
+        <a href="/review">Review</a>
+        <a href="/crops">Crops</a>
+        <a class="active" href="/health">Health</a>
+      </div>
+    </nav>
+
+    <header class="review-head">
+      <div>
+        <h1>Ops health</h1>
+        <p class="section-lede" style="margin:0">
+          Live pod / queue / stack snapshot. Auto-refreshes every 3s.
+        </p>
+      </div>
+      <div class="filters">
+        <span class="health-meta" id="healthMeta">…</span>
+        <button class="btn ghost small" id="refreshHealth" type="button">Refresh</button>
+      </div>
+    </header>
+
+    <div class="health-alerts" id="healthAlerts"></div>
+
+    <div class="health-grid">
+      <section class="health-panel">
+        <h2>Summary</h2>
+        <div class="health-stats" id="healthStats"></div>
+      </section>
+      <section class="health-panel">
+        <h2>Jobs</h2>
+        <div class="health-jobs" id="healthJobs"></div>
+      </section>
+      <section class="health-panel">
+        <h2>Pathé queue</h2>
+        <div class="health-stats" id="healthQueue"></div>
+      </section>
+    </div>
+
+    <section class="health-panel health-pods-panel">
+      <h2>Pods</h2>
+      <div class="queue-table-wrap">
+        <table class="queue-table health-pod-table">
+          <thead>
+            <tr>
+              <th>Pod</th>
+              <th>Status</th>
+              <th>Phase</th>
+              <th>Inflight</th>
+              <th>Ollama</th>
+              <th>Title</th>
+              <th>Error</th>
+            </tr>
+          </thead>
+          <tbody id="healthPods"></tbody>
+        </table>
+      </div>
+    </section>
+  </div>
+
+  <script src="/assets/health.js?v=2"></script>
+</body>
+</html>

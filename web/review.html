@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Review — ShtetlFrames</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600&family=Fraunces:opsz,wght@9..144,500;9..144,560&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/assets/styles.css?v=10" />
+</head>
+<body>
+  <div class="wrap">
+    <nav class="site-nav">
+      <div class="nav-left">
+        <a class="brand-mark" href="/">Shtetl<span>Frames</span></a>
+        <a class="nav-pathe" href="/pathe">British Pathé</a>
+      </div>
+      <div class="nav-links">
+        <a href="/#scrape">Scrape</a>
+        <a href="/#method">Method</a>
+        <a class="active" href="/review">Review</a>
+        <a href="/crops">Crops</a>
+        <a href="/health">Health</a>
+      </div>
+    </nav>
+
+    <header class="review-head">
+      <div>
+        <h1>Review</h1>
+        <p class="section-lede" style="margin:0">
+          Check each moment the scan found. Keep the good ones, pass on the rest.
+        </p>
+      </div>
+      <div class="filters">
+        <div class="chip-row" id="statusChips">
+          <button class="chip active" data-status="">All</button>
+          <button class="chip" data-status="pending">To check</button>
+          <button class="chip" data-status="accept">Kept</button>
+          <button class="chip" data-status="reject">Passed</button>
+          <button class="chip" data-status="openai_keep">AI pass</button>
+          <button class="chip" data-status="openai_drop">AI failed</button>
+        </div>
+        <input id="search" type="search" placeholder="Search titles…" />
+        <select id="reviewSort" aria-label="Sort hits">
+          <option value="scored:desc" selected>Scored · newest</option>
+          <option value="scored:asc">Scored · oldest</option>
+          <option value="score:desc">Score · high → low</option>
+          <option value="score:asc">Score · low → high</option>
+        </select>
+      </div>
+    </header>
+
+    <div class="board">
+      <div class="list" id="list"></div>
+      <aside class="detail" id="detail">
+        <div class="sheet placeholder">Select a candidate</div>
+      </aside>
+    </div>
+  </div>
+
+  <script src="/assets/review.js?v=12"></script>
+</body>
+</html>
