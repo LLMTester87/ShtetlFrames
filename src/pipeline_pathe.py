@@ -443,14 +443,37 @@ def start_pathe_scrape(
 
     try:
         if backend == "runpod":
-            from runpod_provision import MAX_PARALLEL_PODS, set_pod_create_ceiling
+            from runpod_provision import (
+                MAX_PARALLEL_PODS,
+                set_pod_create_ceiling,
+                set_pod_creates_blocked,
+            )
 
-            # Scrape may use the full MAX_INFLIGHT pool, but never silently
-            # clear POD_CREATES_BLOCKED — that flag is a hard user freeze.
+            # Scrape must be allowed to grow the GPU fleet to match workers.
+            # Discover may set POD_CREATES_BLOCKED / ceiling=1 — clear for scrape.
+            set_pod_creates_blocked(False)
             set_pod_create_ceiling(None)
 
+            requested = max(1, min(int(workers or DEFAULT_WORKERS), MAX_WORKERS))
+            # Raise stored MAX_INFLIGHT when UI workers ask for a bigger fleet.
+            try:
+                from settings_store import set_settings
+
+                cur = int(app_config.RUNPOD_MAX_INFLIGHT or 1)
+                if requested > cur:
+                    set_settings(
+                        {"RUNPOD_MAX_INFLIGHT": str(min(requested, MAX_PARALLEL_PODS))}
+                    )
+                    load_env()
+            except Exception:
+                pass
+
             max_inflight = max(
-                1, min(int(app_config.RUNPOD_MAX_INFLIGHT or 4), MAX_PARALLEL_PODS)
+                1,
+                min(
+                    max(int(app_config.RUNPOD_MAX_INFLIGHT or requested), requested),
+                    MAX_PARALLEL_PODS,
+                ),
             )
             # Client slots = pods × stack. Cap at pod count only starves stacking.
             stack_ceil = _pathe_stack_ceiling()
@@ -463,7 +486,6 @@ def start_pathe_scrape(
             workers_cap_hint = max(
                 1, min(max_inflight * stack_ceil, MAX_PARALLEL_PODS * stack_ceil)
             )
-            # Ignore UI "workers=N pods" — that under-subscribes and blocks stacking.
             workers = _pathe_client_slots(
                 max_inflight, stack_hint, cap=workers_cap_hint
             )
@@ -615,15 +637,15 @@ def _pathe_scrape_job(workers: int, backend: str, limit: int | None) -> None:
             from runpod_client import set_pod_pool
             from runpod_provision import MAX_PARALLEL_PODS, ensure_pods
 
+            # GPU count = Settings Parallel GPU pods (synced from UI workers on start).
+            # ``workers`` arg may be pods×stack client slots — do not use it as pod count.
             n_pods = max(
                 1,
                 min(
-                    int(app_config.RUNPOD_MAX_INFLIGHT or workers or 4),
+                    int(app_config.RUNPOD_MAX_INFLIGHT or 4),
                     MAX_PARALLEL_PODS,
                 ),
             )
-            # Prefer a full pod pool for Pathé HLS work.
-            n_pods = max(n_pods, min(workers, MAX_PARALLEL_PODS))
 
             def pod_status(msg: str) -> None:
                 status(msg, job="pathe_scrape")

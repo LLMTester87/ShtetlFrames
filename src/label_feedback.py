@@ -133,10 +133,11 @@ def compute_label_stats(*, reason_samples: int = _REASON_SAMPLE) -> dict[str, An
 
 
 def min_keep_confidence() -> float:
+    # Soft floor — category hard-rejects + marker gate do the heavy filtering.
     try:
-        v = float(os.environ.get("OPENAI_MIN_KEEP_CONF") or "0.70")
+        v = float(os.environ.get("OPENAI_MIN_KEEP_CONF") or "0.75")
     except (TypeError, ValueError):
-        v = 0.70
+        v = 0.75
     return max(0.0, min(0.95, v))
 
 
@@ -262,6 +263,57 @@ def _select_labeled_examples(
     return [item for _, item in scored[:limit]]
 
 
+def _golden_disk_examples() -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Fallback KEEP/PASS stills when Review DB has no human labels yet."""
+    try:
+        from config import ROOT
+    except Exception:
+        ROOT = Path(__file__).resolve().parents[1]
+    keep_paths = [
+        ROOT / "output" / "debug_munkacs_compare" / "munkacs_peak_0.1623.jpg",
+        ROOT / "output" / "debug_munkacs_compare" / "munkacs_peak_0.1414.jpg",
+        ROOT / "output" / "debug_munkacs_compare" / "munkacs_t60.jpg",
+    ]
+    pass_paths = [
+        ROOT / "output" / "contact_sheets" / "cand_1825.jpg",  # astronaut
+        ROOT / "output" / "contact_sheets" / "cand_1806.jpg",  # garden party
+        ROOT / "output" / "contact_sheets" / "cand_1831.jpg",  # military
+    ]
+    keeps: list[dict[str, Any]] = []
+    for i, p in enumerate(keep_paths):
+        if not p.is_file() or p.stat().st_size < 200:
+            continue
+        raw = p.read_bytes()
+        if raw[:3] != b"\xff\xd8\xff":
+            continue
+        keeps.append(
+            {
+                "id": 9000 + i,
+                "raw": raw,
+                "mime": "image/jpeg",
+                "video_id": "golden_munkacs",
+                "notes": "golden keep",
+            }
+        )
+    passes: list[dict[str, Any]] = []
+    for i, p in enumerate(pass_paths):
+        if not p.is_file() or p.stat().st_size < 200:
+            continue
+        raw = p.read_bytes()
+        if raw[:3] != b"\xff\xd8\xff":
+            continue
+        passes.append(
+            {
+                "id": 9100 + i,
+                "raw": raw,
+                "mime": "image/jpeg",
+                "video_id": "golden_pathe_fp",
+                "notes": "golden pass",
+            }
+        )
+    return keeps, passes
+
+
 def build_fewshot_content_parts(
     *,
     n_keep: int = _FEWSHOT_KEEP,
@@ -292,6 +344,14 @@ def build_fewshot_content_parts(
     except Exception as e:
         return [], {"enabled": True, "error": str(e)[:160], "n_keep": 0, "n_pass": 0}
 
+    # After a scoring clear, DB has no accepts — seed Munkács KEEP + Pathé FP PASS.
+    if not keeps or not passes:
+        g_keep, g_pass = _golden_disk_examples()
+        if not keeps:
+            keeps = g_keep[:n_keep]
+        if not passes:
+            passes = g_pass[:n_pass]
+
     parts: list[dict[str, Any]] = []
     if keeps or passes:
         parts.append(
@@ -299,10 +359,10 @@ def build_fewshot_content_parts(
                 "type": "text",
                 "text": (
                     "Examples labeled by a human reviewer for this project. "
-                    "KEEP = person overall looks Jewish/Orthodox AND wears a Jewish "
-                    "head covering — including shtreimel/spodik (fur Hasidic hat) and "
-                    "Orthodox black fedora. Fur shtreimel counts. "
-                    "PASS = not a match — bare heads, secular Pathé crowds, uniforms, other faiths. "
+                    "KEEP = clear Orthodox/Hasidic/Litvish man with kippah, Orthodox "
+                    "black hat, shtreimel, or spodik (grainy 1930s shtetl/yeshiva OK). "
+                    "PASS = secular Pathé — school, cricket, garden party, military, "
+                    "astronaut/space, generic overcoat crowds without Orthodox cues. "
                     "Match this bar."
                 ),
             }

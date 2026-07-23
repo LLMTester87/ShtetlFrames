@@ -85,6 +85,13 @@ NEGATIVE_PROMPTS = [
     "close-up face only no body or shoulders",
     "tight headshot with no torso visible",
     "secular european crowd in dark coats at a ceremony",
+    # Pathé false-keep clusters (OpenAI was inventing shtreimels on these).
+    "english public school boys in school uniforms and caps",
+    "cricket players in white flannels and sports caps",
+    "garden party society guests in hats and coats",
+    "royal or aristocratic outdoor garden reception",
+    "space race astronaut or rocket launch crowd",
+    "british newsreel crowd of secular men in overcoats",
 ]
 
 # OpenCLIP encoder (ViT-L-14 >> classic OpenAI ViT-B/32 for fine-grained dress cues).
@@ -99,8 +106,9 @@ MIN_POS_SCORE = 0.20
 MIN_HEADCOVER_SCORE = 0.16
 MIN_MALE_SCORE = 0.18
 MIN_BODY_SCORE = 0.16
-MAX_NEG_TO_POS_RATIO = 0.95
-NEG_SCORE_WEIGHT = 0.85
+# Slightly stricter than 0.95 — Pathé secular coats were sneaking past.
+MAX_NEG_TO_POS_RATIO = 0.90
+NEG_SCORE_WEIGHT = 0.90
 DEFAULT_FPS = 1.5
 MIN_SEGMENT_SEC = 3.0
 MAX_GAP_SEC = 2.0

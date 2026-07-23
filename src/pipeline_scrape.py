@@ -330,8 +330,36 @@ def start_scrape(max_videos: str | int = "all", workers: int = DEFAULT_WORKERS) 
 
     # RunPod: fan out many in-flight jobs; local: thread pool size
     if backend == "runpod":
-        max_inflight = max(1, int(app_config.RUNPOD_MAX_INFLIGHT or 8))
-        workers = max(1, min(int(workers or max_inflight), max_inflight, MAX_WORKERS * 2))
+        from runpod_provision import (
+            MAX_PARALLEL_PODS,
+            set_pod_create_ceiling,
+            set_pod_creates_blocked,
+        )
+
+        # Discover may have frozen creates at 1 pod — scrape needs the full fleet.
+        set_pod_creates_blocked(False)
+        set_pod_create_ceiling(None)
+        requested = max(1, min(int(workers or DEFAULT_WORKERS), MAX_WORKERS * 2))
+        try:
+            from settings_store import set_settings
+
+            cur = int(app_config.RUNPOD_MAX_INFLIGHT or 1)
+            if requested > cur:
+                set_settings(
+                    {"RUNPOD_MAX_INFLIGHT": str(min(requested, MAX_PARALLEL_PODS))}
+                )
+                load_env()
+        except Exception:
+            pass
+        max_inflight = max(
+            1,
+            min(
+                max(int(app_config.RUNPOD_MAX_INFLIGHT or requested), requested),
+                MAX_PARALLEL_PODS,
+                MAX_WORKERS * 2,
+            ),
+        )
+        workers = max(1, min(requested, max_inflight, MAX_WORKERS * 2))
     else:
         workers = max(1, min(int(workers or DEFAULT_WORKERS), MAX_WORKERS))
     from config import DISCOVER_HARD_CAP

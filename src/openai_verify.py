@@ -37,41 +37,54 @@ _disabled_reason: str | None = None
 _DEFAULT_TIMEOUT = 25.0
 _OPEN_VLM_TIMEOUT = 90.0
 
+# Allowed marker values for a KEEP (must name one concrete Orthodox cue).
+_KEEP_MARKERS = frozenset(
+    {"shtreimel", "spodik", "kippah", "payot_hat", "orthodox_fedora"}
+)
+
 _SYSTEM = (
-    "You review archival film stills for a research tool. "
-    "Decide two visual questions separately, then KEEP only if BOTH are true: "
-    "(1) looks_jewish: does at least one person overall look Jewish in an Orthodox/"
-    "Hasidic/Litvish sense (beard+payot, traditional dress, community look, etc.)? "
-    "This is visual appearance only — not identity or ethnicity certainty. "
-    "(2) head_covered: is that person's head covered by a specifically Jewish/"
-    "Orthodox head covering? COUNT AS YES: yarmulke/kippah/skullcap; black Orthodox "
-    "fedora/homburg/Borsalino with Orthodox dress; AND especially a shtreimel or spodik "
-    "(large round/tall dark fur Hasidic hat) — fur Hasidic hats ARE Jewish head coverings, "
-    "even if the fur texture is grainy on old film. Do NOT reject a clear fur shtreimel/"
-    "spodik as 'secular' or 'unclear Jewish covering'. "
-    "Do NOT reject a dark brimmed hat on a clearly Orthodox/Hasidic man (beard, payot, "
-    "kapote) as merely 'secular fedora' — mark head_covered=true. "
-    "COUNT AS NO: bare heads; military/naval caps; turbans; keffiyeh; biretta; mitre; "
-    "bowler/top hat on secular dress; hair/payot alone. A long coat alone is NEVER enough. "
-    "KEEP only when looks_jewish=true AND head_covered=true. "
-    "Also require an adult MALE (not a woman/girl) and enough of the person visible "
-    "(shoulders/chest/coat — reject tight face-only crops with no body). "
-    "HARD REJECT Pathé-style false keeps: sports crowds, royal parades, military, other "
-    "faiths' clergy, generic bearded Western men without Orthodox cues, costume caricature, "
-    "empty/unclear frames, women, face-only close-ups. "
-    "If the only doubt is whether a fur hat is a shtreimel but the man otherwise looks "
-    "Hasidic, PREFER keep with head_covered=true. "
-    "Do not claim anyone is a rabbi. When human KEEP/PASS examples are provided, match "
-    "that bar. Reply with JSON only."
+    "You review archival film stills for a research tool that finds Orthodox/Hasidic/"
+    "Litvish Jewish dress in old newsreels. Most Pathé frames are false alarms — but "
+    "real 1930s shtetl / yeshiva / workshop scenes MUST be kept even when grainy. "
+    "KEEP when ALL hold: "
+    "(1) looks_jewish: an adult man looks Orthodox/Hasidic/Litvish. Enough if you see "
+    "beard + dark hat/kippah + dark coat/vest, OR clear payot, OR shtreimel/spodik, OR "
+    "yeshiva students with seforim/books in Orthodox dress. Grainy B&W film is OK — "
+    "do not demand modern photo sharpness. "
+    "(2) head_covered: Jewish/Orthodox covering visible. YES: kippah/yarmulke; "
+    "black Orthodox fedora/homburg/Borsalino on an Orthodox-looking man; tall dark "
+    "Hasidic hat / spodik; shtreimel (round fur). NO: bare heads; military/naval/police "
+    "caps; school caps; cricket caps; astronaut/NASA Snoopy-cap / helmet; turbans; "
+    "mitre; bowler/top hat on secular dress. "
+    "(3) marker: strongest cue — shtreimel | spodik | kippah | payot_hat | "
+    "orthodox_fedora | none. Use none only when there is no credible Orthodox covering. "
+    "KEEP iff looks_jewish AND head_covered AND marker≠none. Adult MALE with some "
+    "shoulders/chest (reject women + face-only). "
+    "HARD REJECT (drop): astronauts/space; garden parties/society teas; cricket/sports; "
+    "English public-school boys; military/naval/police parades; royal pageants; "
+    "other-faith clergy; generic Western crowds in overcoats with NO beard/kippah/"
+    "shtreimel/payot. Do NOT invent a shtreimel from a fur collar or blurry blob. "
+    "A secular newsreel man in fedora+overcoat with no beard/payot/kippah → DROP. "
+    "True KEEP examples: Munkács 1933 bearded Hasid at a loom in tall dark hat; "
+    "yeshiva men outdoors with black hats/kippah and seforim; Palestine street with "
+    "shtreimel or Orthodox black hat + beard; elderly white-bearded man in dark "
+    "Orthodox hat even if grainy. Prefer KEEP on those even if slightly soft. "
+    "Prefer DROP on Pathé sports/space/garden/military. "
+    "Do not claim anyone is a rabbi. Match human KEEP/PASS examples when provided. "
+    "JSON only."
 )
 
 _USER = (
-    "For this still: (1) does someone overall look Jewish/Orthodox (looks_jewish)? "
-    "(2) do they wear a clear Jewish head covering — yarmulke, Orthodox black hat, "
-    "shtreimel, or spodik/fur Hasidic hat (head_covered)? "
-    "Fur shtreimel/spodik counts as head_covered=true. Keep only if BOTH are true. "
+    "Judge this still. "
+    "(1) looks_jewish (Orthodox/Hasidic/Litvish man)? "
+    "(2) head_covered (kippah / Orthodox black hat / shtreimel / spodik)? "
+    "(3) marker = shtreimel|spodik|kippah|payot_hat|orthodox_fedora|none. "
+    "KEEP only if (1)+(2) and marker≠none. "
+    "KEEP grainy 1930s Orthodox/yeshiva scenes. "
+    "DROP astronaut, garden party, cricket, schoolboys, military, secular overcoat crowds. "
     'Respond JSON: {"keep": true|false, "looks_jewish": true|false, '
-    '"head_covered": true|false, "confidence": 0.0-1.0, "reason": "short"}'
+    '"head_covered": true|false, "marker": "shtreimel|spodik|kippah|payot_hat|'
+    'orthodox_fedora|none", "confidence": 0.0-1.0, "reason": "short"}'
 )
 
 
@@ -259,6 +272,27 @@ def _notes_tag_match(notes: str | None, tag: str) -> bool:
     )
 
 
+def _normalize_marker(raw: Any) -> str:
+    """Map model marker text to a canonical keep token or ``none``."""
+    s = str(raw or "").strip().lower().replace(" ", "_").replace("-", "_")
+    if not s or s in ("none", "null", "n/a", "na", "unknown", "unclear"):
+        return "none"
+    if s in _KEEP_MARKERS:
+        return s
+    # Loose aliases from older / verbose replies.
+    if "shtreimel" in s or "streimel" in s:
+        return "shtreimel"
+    if "spodik" in s:
+        return "spodik"
+    if "kippah" in s or "yarmulke" in s or "skullcap" in s:
+        return "kippah"
+    if "payot" in s or "sidelock" in s:
+        return "payot_hat"
+    if "fedora" in s or "borsalino" in s or "homburg" in s:
+        return "orthodox_fedora"
+    return "none"
+
+
 def _parse_verdict(content: str) -> dict[str, Any]:
     text = (content or "").strip()
     if not text:
@@ -266,6 +300,7 @@ def _parse_verdict(content: str) -> dict[str, Any]:
             "keep": False,
             "looks_jewish": False,
             "head_covered": False,
+            "marker": "none",
             "confidence": 0.0,
             "reason": "empty_model_reply",
             "skipped": False,
@@ -285,18 +320,25 @@ def _parse_verdict(content: str) -> dict[str, Any]:
             keep = False
         head = '"head_covered": true' in low or '"head_covered":true' in low
         jewish = '"looks_jewish": true' in low or '"looks_jewish":true' in low
+        marker = _normalize_marker(
+            re.search(r'"marker"\s*:\s*"([^"]+)"', low).group(1)
+            if re.search(r'"marker"\s*:\s*"([^"]+)"', low)
+            else "none"
+        )
         if any(
             w in low
             for w in ("bare head", "bareheaded", "no hat", "no yarmulke", "uncovered")
         ):
             keep = False
             head = False
-        if keep and (not head or not jewish):
+            marker = "none"
+        if keep and (not head or not jewish or marker not in _KEEP_MARKERS):
             keep = False
         return {
-            "keep": bool(keep and head and jewish),
+            "keep": bool(keep and head and jewish and marker in _KEEP_MARKERS),
             "looks_jewish": bool(jewish),
             "head_covered": bool(head),
+            "marker": marker,
             "confidence": 0.4,
             "reason": text[:240],
             "skipped": False,
@@ -321,13 +363,23 @@ def _parse_verdict(content: str) -> dict[str, Any]:
         conf = 0.5
     conf = max(0.0, min(1.0, conf))
     reason = str(data.get("reason") or "")[:240]
-    # Hard rule: need Jewish head covering AND overall Jewish/Orthodox look.
-    if not head or not jewish:
+    if "marker" in data:
+        marker = _normalize_marker(data.get("marker"))
+    else:
+        # Older VLMs omit marker — infer from reason text (e.g. "shtreimel…").
+        marker = _normalize_marker(reason)
+    if marker == "none":
+        inferred = _normalize_marker(reason)
+        if inferred != "none":
+            marker = inferred
+    # Hard rule: Jewish look + head covering + named Orthodox marker.
+    if not head or not jewish or marker not in _KEEP_MARKERS:
         keep = False
     return {
         "keep": keep,
         "looks_jewish": jewish,
         "head_covered": head,
+        "marker": marker,
         "confidence": conf,
         "reason": reason,
         "skipped": False,
@@ -359,7 +411,7 @@ def notes_already_verified(notes: str | None) -> bool:
 
 
 def verdict_is_keep(verdict: dict[str, Any]) -> bool:
-    """Require keep + Jewish head covering + overall Jewish look."""
+    """Require keep + Jewish look + head covering + named Orthodox marker."""
     if verdict.get("skipped") or verdict.get("uncertain"):
         return False
     if not bool(verdict.get("keep")):
@@ -367,6 +419,10 @@ def verdict_is_keep(verdict: dict[str, Any]) -> bool:
     if "head_covered" in verdict and not bool(verdict.get("head_covered")):
         return False
     if "looks_jewish" in verdict and not bool(verdict.get("looks_jewish")):
+        return False
+    marker = _normalize_marker(verdict.get("marker"))
+    # Legacy keeps without marker (pre-harden) still allowed if other fields pass.
+    if "marker" in verdict and marker not in _KEEP_MARKERS:
         return False
     return True
 
@@ -382,13 +438,15 @@ def format_verdict_notes(verdict: dict[str, Any]) -> str:
     jewish = verdict.get("looks_jewish")
     head_s = "" if head is None else f" head={'yes' if head else 'no'}"
     jew_s = "" if jewish is None else f" jewish={'yes' if jewish else 'no'}"
+    marker = _normalize_marker(verdict.get("marker")) if "marker" in verdict else ""
+    mark_s = f" marker={marker}" if marker else ""
     prefix = str(verdict.get("provider") or verify_note_prefix()).strip() or "openai"
     if prefix not in ("openai", "vlm"):
         prefix = "openai"
     return (
         f"{prefix}:{tag}"
         f" conf={float(verdict.get('confidence') or 0):.2f}"
-        f"{jew_s}{head_s}"
+        f"{jew_s}{head_s}{mark_s}"
         f" {verdict.get('reason') or ''}"
     )[:500]
 
