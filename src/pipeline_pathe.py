@@ -6,12 +6,40 @@ pending rows as discover inserts them.
 
 from __future__ import annotations
 
+import json
 import threading
 import time
 import traceback
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
+from pathlib import Path
 
 import config as app_config
+
+# #region agent log
+_DBG_LOG = Path(__file__).resolve().parents[1] / "debug-30525a.log"
+_DBG_LOCK = threading.Lock()
+
+
+def _dbg(hypothesis_id: str, location: str, message: str, **data: object) -> None:
+    try:
+        payload = {
+            "sessionId": "30525a",
+            "runId": "scrape-stuck",
+            "hypothesisId": hypothesis_id,
+            "location": location,
+            "message": message,
+            "data": data,
+            "timestamp": int(time.time() * 1000),
+            "tid": threading.get_ident(),
+        }
+        with _DBG_LOCK:
+            with _DBG_LOG.open("a", encoding="utf-8") as fh:
+                fh.write(json.dumps(payload, default=str) + "\n")
+    except Exception:
+        pass
+
+
+# #endregion
 from config import (
     DEFAULT_FPS,
     DEFAULT_SCORE_THRESHOLD,
@@ -660,6 +688,16 @@ def _pathe_scrape_job(workers: int, backend: str, limit: int | None) -> None:
                 message=f"Spinning up {n_pods} RunPod GPU pod(s)…",
                 progress=3,
             )
+            # #region agent log
+            _dbg(
+                "A",
+                "pipeline_pathe.py:_pathe_scrape_job",
+                "ensure_pods_enter",
+                n_pods=n_pods,
+                min_ready=1,
+                extra_fill_sec=0,
+            )
+            # #endregion
             bases = ensure_pods(
                 count=n_pods,
                 on_status=pod_status,
@@ -667,6 +705,15 @@ def _pathe_scrape_job(workers: int, backend: str, limit: int | None) -> None:
                 # ensure_pods fills remaining pods in a background thread
                 extra_fill_sec=0,
             )
+            # #region agent log
+            _dbg(
+                "B",
+                "pipeline_pathe.py:_pathe_scrape_job",
+                "ensure_pods_exit",
+                n_bases=len(bases or []),
+                n_pods=n_pods,
+            )
+            # #endregion
             set_pod_pool(bases)
             status(
                 f"{len(bases)}/{n_pods} GPU pod(s) ready — Pathé scrape starting",
@@ -685,11 +732,16 @@ def _pathe_scrape_job(workers: int, backend: str, limit: int | None) -> None:
 
             def _fill_remaining_pods() -> None:
                 """Block until pool is full (or capacity runs out); expand workers via pool."""
+
+                def _fill_status(msg: str) -> None:
+                    # Console/log only — do not overwrite the live scrape job message.
+                    status(msg, job="pathe_scrape", persist=False)
+
                 try:
                     # Wait for a full pool (min_ready=n) — do not return after the first pod.
                     more = ensure_pods(
                         count=n_pods,
-                        on_status=pod_status,
+                        on_status=_fill_status,
                         min_ready=max(1, n_pods),
                         extra_fill_sec=1200,
                     )
@@ -821,6 +873,20 @@ def _pathe_scrape_job(workers: int, backend: str, limit: int | None) -> None:
                 if slots > 0 and (limit is None or claimed < limit):
                     take_n = slots if limit is None else min(slots, limit - claimed)
                     batch = take_pending_pathe(take_n, only_pending=True)
+                    # #region agent log
+                    if claimed == 0 or batch:
+                        _dbg(
+                            "B",
+                            "pipeline_pathe.py:_pathe_scrape_job",
+                            "claim_batch",
+                            slots=slots,
+                            take_n=take_n,
+                            batch=len(batch or []),
+                            claimed=claimed,
+                            workers=workers,
+                            futs=len(futs),
+                        )
+                    # #endregion
                     for row in batch:
                         futs[pool.submit(_process_one_pathe, row, backend)] = row
                         claimed += 1

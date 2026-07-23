@@ -3,14 +3,42 @@
 from __future__ import annotations
 
 import concurrent.futures
+import json
 import threading
 import time
+from pathlib import Path
 from typing import Any, Callable
 
 import requests
 
 import config as app_config
 from config import load_env
+
+# #region agent log
+_DBG_LOG = Path(__file__).resolve().parents[1] / "debug-30525a.log"
+_DBG_LOCK = threading.Lock()
+
+
+def _dbg(hypothesis_id: str, location: str, message: str, **data: object) -> None:
+    try:
+        payload = {
+            "sessionId": "30525a",
+            "runId": "scrape-stuck",
+            "hypothesisId": hypothesis_id,
+            "location": location,
+            "message": message,
+            "data": data,
+            "timestamp": int(time.time() * 1000),
+            "tid": threading.get_ident(),
+        }
+        with _DBG_LOCK:
+            with _DBG_LOG.open("a", encoding="utf-8") as fh:
+                fh.write(json.dumps(payload, default=str) + "\n")
+    except Exception:
+        pass
+
+
+# #endregion
 
 POD_NAME = "shtetlframes-scan"
 POD_NAME_PREFIX = "shtetlframes-scan"
@@ -792,6 +820,29 @@ def ensure_pods(
                 )
         else:
             fill_deadline = time.time() + float(extra_fill_sec)
+    elif len(ready) < min_ready and float(extra_fill_sec) > 0:
+        # Still short of min_ready — honor extra_fill_sec instead of deadline=None
+        # (which used to block forever in _create_until_full).
+        fill_deadline = time.time() + float(extra_fill_sec)
+
+    # #region agent log
+    _dbg(
+        "A",
+        "runpod_provision.py:ensure_pods",
+        "after_probe_branch",
+        n=n,
+        min_ready=min_ready,
+        extra_fill_sec=float(extra_fill_sec),
+        ready=len(ready),
+        booting=len(booting),
+        live_n=live_n,
+        have_or_booting=have_or_booting,
+        return_early=return_early,
+        fill_deadline=fill_deadline,
+        creates_blocked=creates_blocked,
+        caller_tid=threading.get_ident(),
+    )
+    # #endregion
 
     def _live_count() -> int:
         try:
@@ -973,6 +1024,23 @@ def ensure_pods(
             if len(out) < target and wave < 2 and status_cb:
                 # Only replace if we are under target AND under account cap.
                 if _live_count() < min(target, account_cap):
+                    # #region agent log
+                    _dbg(
+                        "A",
+                        "runpod_provision.py:_create_until_full",
+                        "wave_retry",
+                        wave=wave,
+                        out=len(out),
+                        target=target,
+                        live=_live_count(),
+                        deadline=deadline,
+                        deadline_left=(
+                            None
+                            if deadline is None
+                            else round(deadline - time.time(), 1)
+                        ),
+                    )
+                    # #endregion
                     status_cb(
                         f"{len(out)}/{target} healthy after wave {wave} — "
                         f"retrying replacements…"
@@ -987,6 +1055,16 @@ def ensure_pods(
             )
         if len(out) < target and status_cb:
             status_cb(f"only {len(out)}/{target} pods available — continuing with those")
+        # #region agent log
+        _dbg(
+            "A",
+            "runpod_provision.py:_create_until_full",
+            "exit",
+            out=len(out),
+            target=target,
+            deadline=deadline,
+        )
+        # #endregion
         return out
 
     def _start_bg_fill(
@@ -1003,17 +1081,22 @@ def ensure_pods(
 
         def _bg_fill() -> None:
             global _bg_fill_active
+
+            def _bg_status(msg: str) -> None:
+                # Do not call on_status — Pathé scrape uses it to set_job(message=…)
+                # and bg "waiting for GPU" lines were stomping live scrape progress.
+                print(f"[shtetl] bg-fill: {(msg or '')[:140]}", flush=True)
+
             try:
                 _create_until_full(
                     snapshot,
                     already_booting=boot_snap,
                     deadline=None,
-                    status_cb=on_status,
+                    status_cb=_bg_status,
                     target=n,
                 )
             except Exception as e:
-                if on_status:
-                    on_status(f"background pod fill failed: {e}"[:160])
+                _bg_status(f"background pod fill failed: {e}"[:160])
             finally:
                 with _bg_fill_lock:
                     _bg_fill_active = False
@@ -1030,6 +1113,16 @@ def ensure_pods(
         return [base for _, base in ready]
 
     if return_early and ready:
+        # #region agent log
+        _dbg(
+            "A",
+            "runpod_provision.py:ensure_pods",
+            "return_early",
+            ready=len(ready),
+            booting=len(booting),
+            n=n,
+        )
+        # #endregion
         _start_bg_fill(list(ready), list(booting))
         _persist_pod_id(ready[0][0])
         return [base for _, base in ready]
@@ -1039,19 +1132,76 @@ def ensure_pods(
         if booting:
             _start_bg_fill(list(ready), list(booting))
         _persist_pod_id(ready[0][0])
+        # #region agent log
+        _dbg(
+            "A",
+            "runpod_provision.py:ensure_pods",
+            "return_full",
+            ready=len(ready),
+            n=n,
+        )
+        # #endregion
         return [base for _, base in ready]
 
     if len(ready) < n:
-        ready = _create_until_full(
-            ready,
-            already_booting=list(booting),
-            deadline=fill_deadline,
-            status_cb=on_status,
-            target=n,
+        # extra_fill_sec=0 means: block only until min_ready, then scrape while
+        # a background thread fills to ``n``. Previously deadline=None + target=n
+        # blocked the scrape coordinator until ALL pods were healthy (e.g. stuck
+        # at "6/8 healthy after wave 1 — retrying replacements…").
+        block_target = min_ready if float(extra_fill_sec) <= 0 else n
+        # #region agent log
+        _dbg(
+            "A",
+            "runpod_provision.py:ensure_pods",
+            "enter_create_until_full",
+            ready=len(ready),
+            booting=len(booting),
+            n=n,
+            min_ready=min_ready,
+            block_target=block_target,
+            fill_deadline=fill_deadline,
+            soft_return=float(extra_fill_sec) <= 0,
         )
+        # #endregion
+        if len(ready) < block_target:
+            ready = _create_until_full(
+                ready,
+                already_booting=list(booting),
+                deadline=fill_deadline,
+                status_cb=on_status,
+                target=block_target,
+            )
+        if float(extra_fill_sec) <= 0 and ready:
+            # #region agent log
+            _dbg(
+                "A",
+                "runpod_provision.py:ensure_pods",
+                "soft_return_min_ready",
+                ready=len(ready),
+                n=n,
+                min_ready=min_ready,
+            )
+            # #endregion
+            if on_status:
+                on_status(
+                    f"{len(ready)}/{n} pods ready — starting scrape; "
+                    f"filling remaining in background…"
+                )
+            _start_bg_fill(list(ready), list(booting))
+            _persist_pod_id(ready[0][0])
+            return [base for _, base in ready]
 
     if not ready:
         raise RuntimeError("Could not start GPU pods.")
 
     _persist_pod_id(ready[0][0])
+    # #region agent log
+    _dbg(
+        "A",
+        "runpod_provision.py:ensure_pods",
+        "return_after_create",
+        ready=len(ready),
+        n=n,
+    )
+    # #endregion
     return [base for _, base in ready]

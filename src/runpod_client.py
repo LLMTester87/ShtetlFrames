@@ -52,6 +52,9 @@ _BROKEN_WARM_MARKERS = (
     "syntaxerror",
     "warmup failed",
     "warm_failed",
+    # YOLO dropped / never loaded — replace the pod, don't hard-fail the queue row.
+    "has no attribute 'predict'",
+    "nonetype' object has no attribute 'predict",
 )
 
 # Pods that already received this checkout's handler via /sync_push (Catbox-less stills).
@@ -163,6 +166,7 @@ _INFRA_MARKERS = (
     "failed to establish a new connection",
     "name or service not known",
     "temporary failure in name resolution",
+    "has no attribute 'predict'",
 )
 
 
@@ -692,9 +696,11 @@ def maintain_pod_pool(
     alive: list[str] = []
     replaced = 0
     now = time.time()
+    kinds: dict[str, str] = {}
     for raw in pool:
         u = raw.rstrip("/")
         kind = _classify_pod(u)
+        kinds[u.split("//")[-1][:18]] = kind
         if kind == "dead":
             drop_pod_url(u, terminate=True, reason="proxy_dead")
             replaced += 1
@@ -725,6 +731,21 @@ def maintain_pod_pool(
             _pod_strikes.pop(u, None)
             _warming_since.pop(u, None)
         alive.append(u)
+    # #region agent log
+    if replaced or any(k in ("dead", "broken", "warming", "unknown") for k in kinds.values()):
+        _agent_log(
+            "C",
+            "runpod_client.py:maintain_pod_pool",
+            "heal_pass",
+            {
+                "want": want,
+                "pool": len(pool),
+                "alive": len(alive),
+                "replaced": replaced,
+                "kinds": kinds,
+            },
+        )
+    # #endregion
 
     # GraphQL orphans: RUNNING but broken/dead — kill so ensure_pods can refill.
     known = set(alive)
@@ -752,15 +773,49 @@ def maintain_pod_pool(
     if {u.rstrip("/") for u in alive} != {u.rstrip("/") for u in pool}:
         set_pod_pool(alive)
 
-    if len(alive) < want or replaced:
+    # Critical: do NOT block the scrape coordinator on a full ensure_pods probe
+    # every few seconds just because alive < want (e.g. 5/8). That froze the
+    # claim/result loop for ~15–40s per pass and made the UI look crashed at 0%.
+    need_block_refresh = (not alive) or replaced > 0
+    if need_block_refresh:
         try:
             if on_status and replaced:
                 on_status(f"self-heal: replaced {replaced} dead GPU(s)…")
+            # #region agent log
+            _agent_log(
+                "F",
+                "runpod_client.py:maintain_pod_pool",
+                "block_refresh",
+                {"want": want, "alive": len(alive), "replaced": replaced},
+            )
+            # #endregion
             alive = refresh_pod_pool(
-                count=want, on_status=on_status, force=bool(replaced) or len(alive) < want
+                count=want, on_status=on_status, force=True
             )
         except Exception:
             pass
+    elif len(alive) < want:
+        # #region agent log
+        _agent_log(
+            "F",
+            "runpod_client.py:maintain_pod_pool",
+            "async_fill_skip_block",
+            {"want": want, "alive": len(alive), "replaced": replaced},
+        )
+        # #endregion
+
+        def _bg_refill() -> None:
+            try:
+                more = refresh_pod_pool(count=want, on_status=None, force=False)
+                if more:
+                    set_pod_pool(more)
+                    _push_handlers_best_effort(more)
+            except Exception:
+                pass
+
+        threading.Thread(
+            target=_bg_refill, daemon=True, name="pod-pool-async-fill"
+        ).start()
     _push_handlers_best_effort(alive)
     return alive
 
